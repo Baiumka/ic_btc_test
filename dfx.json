@@ -1,0 +1,26 @@
+{
+  "canisters": {
+    "btc_backend": {
+      "main": "src/btc_backend/main.mo",
+      "type": "motoko"
+    },
+    "btc_frontend": {
+      "dependencies": [
+        "btc_backend"
+      ],
+      "source": [
+        "src/btc_frontend/dist"
+      ],
+      "type": "assets",
+      "workspace": "btc_frontend"
+    }
+  },
+  "defaults": {
+    "build": {
+      "args": "",
+      "packtool": ""
+    }
+  },
+  "output_env_file": ".env",
+  "version": 1
+}
