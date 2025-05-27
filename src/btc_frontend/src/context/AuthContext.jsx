@@ -2,12 +2,18 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { AuthClient } from "@dfinity/auth-client";
 import { createActor, canisterId, idlFactory } from 'declarations/btc_backend';
+import { createAgent } from "@dfinity/utils";
+import { IcrcLedgerCanister } from "@dfinity/ledger-icrc";
+import { Principal } from '@dfinity/principal';
+import { IDL } from "@dfinity/candid";
+import * as auth from "../utils/auth_utils";
 
-const AuthContext = createContext();
+const AuthContext = createContext();  
 
 export const AuthProvider = ({ children }) => {
 
-  const [identity, setIdentity] = useState(null);
+  //const [identity, setIdentity] = useState(null);
+  const [userAgent, setAgent] = useState(null);
   const [principal, setPrincipal] = useState(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [userData, setUserData] = useState(null);
@@ -16,63 +22,169 @@ export const AuthProvider = ({ children }) => {
   const [userActor, setUserActor] = useState(null);
 
   useEffect(() => {
-    initAuth();
+    //initAuth();
+    initPlugAuth();
   }, []);
 
   const initAuth = async () => {
     const client = await AuthClient.create();
     if (await client.isAuthenticated()) {
-      const identity = client.getIdentity();
-      fillUserData(identity);
-    }    
+      const loginIdentity = client.getIdentity();
+      fillUserData({loginIdentity});
+    }
+    else
+    {
+        setLoading(false);
+    }
   };
 
-  const getIdentityProvider = () => {
-    let idpProvider;
-    if (typeof window !== "undefined") {
-      const isLocal = process.env.DFX_NETWORK == "local";    
-      const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
-      if (isLocal && isSafari) {
-        idpProvider = `http://localhost:4943/?canisterId=${process.env.CANISTER_ID_INTERNET_IDENTITY}`;
-      } else if (isLocal) {
-        idpProvider = `http://${process.env.CANISTER_ID_INTERNET_IDENTITY}.localhost:4943`;
-      }
+  const initPlugAuth = async () => {
+    console.log("initPlugAuth");        
+      const isConnected = await window.ic.plug.isConnected();     
+      console.log("isConnected",isConnected);                  
+      if (isConnected) {      
+        console.log("Plug is connected");                      
+        await fillUserData({});
+      }            
       else
       {
-        idpProvider = `https://identity.ic0.app/#authorize`;
-      }
-    }
-    console.log(idpProvider);
-    return idpProvider;
+        console.log("Plug is not connected");
+        setLoading(false);
+      }       
   };
+
+  const MakeLogin = async() => {
+    const publicKey = await LoginPlug();
+    console.log(`The connected user's public key is:`, publicKey);
+    const loginAgent = window.ic.plug.agent;  
+    await fillUserData({loginAgent});
+  };
+
+  const LoginPlug = async()  => {         
+    return new Promise(async(resolve, reject) => {       
+      const publicKey = await window.ic.plug.requestConnect({whitelist: [canisterId]});                                
+      resolve(publicKey);    
+  });
+}
+
+const LoginII = async () => {
+  const client = await AuthClient.create();
+  await client.login({
+    identityProvider: auth.getIdentityProvider(),
+    onSuccess: async () => {
+      const loginIdentity = client.getIdentity();
+      fillUserData({loginIdentity});        
+    },
+  });
+};
 
   const login = async () => {
-    const client = await AuthClient.create();
-    await client.login({
-      identityProvider: getIdentityProvider(),
-      onSuccess: async () => {
-        const identity = client.getIdentity();
-        fillUserData(identity);        
-      },
-    });
+    await MakeLogin();
+    //await LoginII();
   };
 
-  const fillUserData = async (userIdentity) => {
-    const principal = userIdentity.getPrincipal().toString();
-    const actor = createActor(canisterId, { agentOptions: { identity } });
-    const response = await actor.getUser();        
+  const getAllWallets = async () => {
+    try
+    {
+        return await userActor.getSubaccounts(); 
+    }
+    catch (e)
+    {
+        console.log(e);
+    }
+  };
+
+  const getBalance = async (dfx) => {
+    try
+    {
+        const result = await userActor.getBalance(dfx);
+        const numAmount = Number(result) / 100_000_000; 
+        console.log(result);
+        console.log(numAmount);
+        return numAmount ;
+    }
+    catch (e)
+    {
+        console.log(e);
+    }
+  };
+
+  const moveBalance = async (from_sub, to_sub, amount) => {    
+    console.log("from_sub", from_sub);
+    console.log("to_sub", to_sub);
+    console.log("amount", amount);
+    const tokenCanisterId = "mc6ru-gyaaa-aaaar-qaaaq-cai";     
+    const nat64amount = BigInt(Math.round(amount * 100_000_000) + 10_000);
+    const arg = IDL.encode([
+      IDL.Record({
+        from_subaccount: IDL.Opt(IDL.Vec(IDL.Nat8)),
+        spender: IDL.Record({
+          owner: IDL.Principal,
+          subaccount: IDL.Opt(IDL.Vec(IDL.Nat8))
+        }),
+        amount: IDL.Nat,
+        expected_allowance: IDL.Opt(IDL.Nat),
+        expires_at: IDL.Opt(IDL.Nat64),
+        fee: IDL.Opt(IDL.Nat),
+        memo: IDL.Opt(IDL.Vec(IDL.Nat8)),
+        created_at_time: IDL.Opt(IDL.Nat64)
+      })
+    ], [{
+      from_subaccount: from_sub ? [from_sub] : [],
+      spender: {
+        owner: Principal.fromText(canisterId),
+        subaccount: []
+      },
+      amount: nat64amount,
+      expected_allowance: [],
+      expires_at: [],
+      fee: [],
+      memo: [],
+      created_at_time: []
+    }]);
+    const result = await window.ic.plug.agent.call(tokenCanisterId, {
+      methodName: "icrc2_approve",
+      arg
+    });
+    
+    console.log("icrc2_approve",result);
+    if(result.response.ok)
+    {
+      console.log("result.response.ok",result.response.ok);
+      const plugPrinc = await window.ic.plug.getPrincipal();
+      console.log("plugPrinc:", plugPrinc);
+      const textPrinc = plugPrinc.toText();          
+      console.log("textPrinc:", textPrinc);  
+      console.log("princ:", principal);      
+      const numAmount = Math.round(amount*100_000_000);
+      console.log(numAmount);
+      const depositResult = await userActor.moveBalance(textPrinc, from_sub ? [from_sub] : [], to_sub, numAmount);
+      console.log("depositResult",depositResult);
+    }
+  };
+
+  const fillUserData = async (options) => {    
+    const actor = await window.ic.plug.createActor({
+      canisterId: canisterId,
+      interfaceFactory: idlFactory,
+    }); 
+    console.log("kek actor",actor);  
+    console.log("actor",actor);
+    const response = await actor.getUser(); 
+    console.log("response",response);       
     if ("ok" in response) {
         setUserData(response.ok);
-        setNeedsRegistration(false);
+        setNeedsRegistration(false);        
     }
     else
     {
         setUserData(null);
         setNeedsRegistration(true);
     }
+    const princ = await actor.whoami();
+    console.log("princ", princ);
+    setPrincipal(princ);
     setLoading(false);
-    setIdentity(userIdentity);
-    setPrincipal(principal);
     setIsAuthenticated(true);    
     setUserActor(actor)
   };
@@ -90,7 +202,8 @@ export const AuthProvider = ({ children }) => {
     const newUse = {
         nickname: nickname,
         password: password,
-        phone: phone
+        phone: phone,
+        wallets: []
     };
     const response = await userActor.createNewUser(newUse);
     if ("ok" in response) {
@@ -117,6 +230,9 @@ export const AuthProvider = ({ children }) => {
         userData,
         needsRegistration,
         register,
+        getAllWallets,
+        getBalance,
+        moveBalance        
       }}
     >
       {children}

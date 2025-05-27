@@ -1,9 +1,15 @@
 {
   "canisters": {
-    "internet-identity": {
-      "type": "pull",
-      "id": "rdmx6-jaaaa-aaaaa-aaadq-cai"
-    },    
+    "icp_ledger_canister": {
+      "type": "custom",
+      "candid": "ledger.did",
+      "wasm": "ledger-canister_notify-method.wasm",
+      "remote": {
+        "id": {
+          "ic": "ryjl3-tyaaa-aaaaa-aaaba-cai"
+        }
+      }
+    },        
     "btc_backend": {
       "main": "src/btc_backend/main.mo",
       "type": "motoko"

@@ -15,8 +15,8 @@ const RegistrationForm = () => {
   };
 
   return (
-    <form onSubmit={handleSubmit} className="mt-4">
-      <div className="mb-3">
+    <form onSubmit={handleSubmit} className="mt-4 d-flex">
+      
         <input
           className="form-control"
           type="text"
@@ -25,8 +25,7 @@ const RegistrationForm = () => {
           onChange={(e) => setNickname(e.target.value)}
           required
         />
-      </div>
-      <div className="mb-3">
+      
         <input
           className="form-control"
           type="password"
@@ -35,8 +34,7 @@ const RegistrationForm = () => {
           onChange={(e) => setPassword(e.target.value)}
           required
         />
-      </div>
-      <div className="mb-3">
+     
         <input
           className="form-control"
           type="tel"
@@ -45,7 +43,7 @@ const RegistrationForm = () => {
           onChange={(e) => setPhone(e.target.value)}
           required
         />
-      </div>
+      
       <button type="submit" className="btn btn-success w-100">Register</button>
       {message && <div className="alert alert-info mt-3">{message}</div>}
     </form>

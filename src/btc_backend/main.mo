@@ -1,17 +1,20 @@
 import Principal "mo:base/Principal";
 import Array "mo:base/Array";
 import Nat8 "mo:base/Nat8";
+import Nat64 "mo:base/Nat64";
 import Blob "mo:base/Blob";
 import Text "mo:base/Text";
 import Trie "mo:base/Trie";
 import Result "mo:base/Result";
 import Buffer "mo:base/Buffer";
-import Error "mo:base/Error";
 import T "./types";
 import U "./utils";
-import ENV "./Env";
 import UserNode "UserNode";
 import Cycles "mo:base/ExperimentalCycles";
+import Icrc1Ledger "./ledger_types";
+import Debug "mo:base/Debug";
+import Error "mo:base/Error";
+
 
 
 shared ({caller = initializer}) actor class() {
@@ -19,11 +22,45 @@ shared ({caller = initializer}) actor class() {
   private stable var _uids : Trie.Trie<Text, Text> = Trie.empty();    
   private stable var _userNodes : [Text] = []; 
 
-  public shared ({caller}) func greet(name : Text) : async Text {
-    //let subaccount1 = createSubaccount(caller, 1);
-    return "Hello, " # name # "! Your identity:" # Principal.toText(caller);
+  let ledgerCanister = actor("mc6ru-gyaaa-aaaar-qaaaq-cai") : actor {
+    icrc2_transfer_from : shared Icrc1Ledger.TransferFromArgs -> async Icrc1Ledger.TransferFromResult;   
+    icrc1_balance_of : shared query Icrc1Ledger.Account -> async Icrc1Ledger.Tokens;
   };
 
+  public shared ({ caller }) func moveBalance(from_principal: Text, from_sub: ?Blob, to_sub: Blob, amount: Nat) : async Result.Result<Icrc1Ledger.BlockIndex, Text> {
+    let transferFromArgs : Icrc1Ledger.TransferFromArgs = {
+      from = {
+        owner = Principal.fromText(from_principal);
+        subaccount = from_sub;
+      };      
+      memo = null;      
+      amount = amount;      
+      spender_subaccount = null;      
+      fee = ?10;      
+      to = {
+        owner = caller;
+        subaccount = ?to_sub;
+      };
+      created_at_time = null;
+    };
+
+    try {      
+      let transferFromResult = await ledgerCanister.icrc2_transfer_from(transferFromArgs);      
+      switch (transferFromResult) {
+        case (#Err(transferError)) {
+          return #err("Couldn't transfer funds:\n" # debug_show (transferError));
+        };
+        case (#Ok(blockIndex)) { 
+          let answer: Nat64 = Nat64.fromNat(blockIndex);
+          let result = Nat64.toNat(answer);
+          return #ok result;
+        };
+      };     
+    } catch (error : Error) {      
+      return #err("Reject message: " # Error.message(error));
+    };
+  };
+  
   public shared ({caller}) func resetUsers() : async () {       
     assert (caller == initializer); 
         _uids := Trie.empty();        
@@ -37,8 +74,46 @@ shared ({caller = initializer}) actor class() {
         return #ok(canister_id);
     };
 
-  public shared ({caller}) func getAllUsers() : async [T.User] {
-    assert (caller == initializer); 
+  public shared ({caller}) func getSubaccounts() : async [T.Wallet] {
+    let callerUser = await getUserByPrinc(Principal.toText(caller));     
+    switch (callerUser) {
+      case (?user) 
+      {             
+        return user.wallets;
+      };
+      case (null) {      
+        return [];
+      };      
+    }    
+  };
+
+  public shared ({caller}) func getBalance(wallet: Blob) : async Nat64 {
+    let callerUser = await getUserByPrinc(Principal.toText(caller));     
+    switch (callerUser) {
+      case (?user) 
+      {            
+        let realWallet = Array.find<T.Wallet>(user.wallets, func (w) = w.blob == wallet);
+        switch (realWallet) {
+          case (?w) {
+            let ownerRec = {
+                owner = caller;
+                subaccount = ?w.blob;
+            };            
+            let balance = await ledgerCanister.icrc1_balance_of(ownerRec);
+            return Nat64.fromNat(balance);
+          };
+          case (null) {      
+            return 0;
+          };
+        };
+      };
+      case (null) {      
+        return 0;
+      };      
+    }    
+  };
+
+  public shared ({caller}) func getAllUsers() : async [T.User] {    
     var users = Buffer.Buffer<T.User>(0);
     for (canister_id in _userNodes.vals()) {    
         let userNode = actor (canister_id) : actor {
@@ -69,11 +144,15 @@ shared ({caller = initializer}) actor class() {
       return _uids;        
   };
 
+  public shared ({caller}) func whoami(): async Text {
+    return Principal.toText(caller);
+  };
+
   public shared ({ caller }) func createNewUser(user: T.User) : async Result.Result<T.User, Text> {
       var caller_id : Text = Principal.toText(caller);
       switch (await getUserNodeCanisterId(caller_id)) {
           case (#ok o) {
-              return #err("User already exist"); 
+              return #err("User already exist!!!"); 
           };
           case (#err e) {
               var canister_id : Text = "";
@@ -92,9 +171,25 @@ shared ({caller = initializer}) actor class() {
               };                             
               let node = actor (canister_id) : actor {
                       registerUser : shared (T.User, Text) -> async ();
-              };                                      
-              await node.registerUser(user, caller_id);
-              return #ok(user);              
+              };      
+              let sub1 = createSubaccount(caller, 1);
+              let sub2 = createSubaccount(caller, 2);
+              let wallet1 = {
+                blob = sub1;
+                ledger = U.bytesToText(Blob.toArray(Principal.toLedgerAccount(caller, ?sub1)));                
+              };
+              let wallet2 = {
+                blob = sub2;
+                ledger = U.bytesToText(Blob.toArray(Principal.toLedgerAccount(caller, ?sub2)));                
+              };
+              let newUser: T.User = {
+                nickname = user.nickname;
+                password = user.password;
+                phone = user.phone;
+                wallets = [wallet1, wallet2];
+              };             
+              await node.registerUser(newUser, caller_id);
+              return #ok(newUser);              
           };
       };
   };
@@ -130,7 +225,7 @@ shared ({caller = initializer}) actor class() {
     };
 
 
-func createSubaccount(userId : Principal, index : Nat) : [Nat8] {
+func createSubaccount(userId : Principal, index : Nat) : Blob {
   var subaccount = Array.init<Nat8>(32, 0);
   subaccount[0] := Nat8.fromNat(index);
   let userBytesArray = Blob.toArray(Principal.toBlob(userId));
@@ -138,8 +233,9 @@ func createSubaccount(userId : Principal, index : Nat) : [Nat8] {
     if (i + 1 < 32) {
       subaccount[i + 1] := userBytesArray[i];
     }
-  };
-  return Array.freeze<Nat8>(subaccount);
+  };  
+  //let account = Principal.toLedgerAccount(userId, ?Blob.fromArrayMut(subaccount));
+  return Blob.fromArrayMut(subaccount);
 };
 
 }
