@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { useAuth } from "../context/AuthContext";
 
 const UserList = () => {
-  const { getAllWallets, getBalance, moveBalance} = useAuth();
+  const { getAllWallets, getBalance, moveBalance, deposit} = useAuth();
   const [wallets, setWallets] = useState([]);
   const [details, setDetails] = useState([]);
   const [isOpen, setIsOpen] = useState(false);
@@ -14,6 +14,7 @@ const UserList = () => {
   const [fromWallet, setFromWallet] = useState(null);
   const [toWallet, setToWallet] = useState("");
   const [amount, setAmount] = useState("");
+  const [depositDuration, setDepositDuration] = useState(60);
 
   const openMoveModal = (from) => {
     setFromWallet(from);
@@ -34,7 +35,7 @@ const UserList = () => {
   };
   
   const handleDeposit =  async () => {    
-    const depositResult = await moveBalance(null, depositWallet.blob, depositAmount);
+    const depositResult = await deposit(depositWallet.blob, depositAmount, depositDuration);
     await showBalance(depositWallet);
     setDepositModal(false);
   };
@@ -74,38 +75,42 @@ const UserList = () => {
             <div key={dfx.ledger} className="card mb-2 shadow-sm">
               <div className="card-body d-flex justify-content-between align-items-start">
                 <div className="flex-grow-1 text-break pe-2">
-                    <strong className="font-monospace">{dfx.ledger}</strong>
+                  <strong className="font-monospace">{dfx.ledger}</strong>
+                  <div className="text-muted small">
+                    {dfx.amount ? "added " + Number(dfx.amount) / 100_000_000  + " ckTESTBTC every " + dfx.delay + " seconds" : ""}
+                  </div>
                 </div>
-                    <div className="flex-column gap-1">
-                        <button
-                        className="btn btn-sm btn-outline-primary"
-                        onClick={() => openDepositModal(dfx)}
-                        >
-                        DEPOSIT
-                        </button>
-                        <button
-                        className="btn btn-sm btn-outline-primary"
-                        onClick={() => showBalance(dfx)}
-                        >
-                        SHOW
-                        </button>
-                        <button
-                        className="btn btn-sm btn-outline-success"
-                        onClick={() => openMoveModal(dfx)}
-                        >
-                        MOVE
-                        </button>
-                    </div>
+                <div className="flex-column gap-1">
+                  <button
+                    className="btn btn-sm btn-outline-primary"
+                    onClick={() => openDepositModal(dfx)}
+                  >
+                    DEPOSIT
+                  </button>
+                  <button
+                    className="btn btn-sm btn-outline-primary"
+                    onClick={() => showBalance(dfx)}
+                  >
+                    BALANCE
+                  </button>
+                  <button
+                    className="btn btn-sm btn-outline-success"
+                    onClick={() => openMoveModal(dfx)}
+                  >
+                    MOVE
+                  </button>
                 </div>
-                {details[dfx.ledger] && (
+              </div>
+              {details[dfx.ledger] && (
                 <div className="card-footer text-start small text-muted">
-                    {details[dfx.ledger].error
+                  {details[dfx.ledger].error
                     ? <span className="text-danger">{details[dfx.ledger].error}</span>
                     : `Balance: ${details[dfx.ledger].balance.toString()}`}
                 </div>
               )}
             </div>
           ))}
+
         </div>
       )}     
       {showModal && (
@@ -179,10 +184,10 @@ const UserList = () => {
           ></button>
         </div>
         <div className="modal-body">
-        <div className="mb-3">
-  <label className="form-label">To Wallet: {depositWallet.ledger}</label>
-</div>
-<div className="mb-3">
+          <div className="mb-3">
+            <label className="form-label">To Wallet: {depositWallet.ledger}</label>
+          </div>
+          <div className="mb-3">
             <label className="form-label">Amount (ICP)</label>
             <input
               type="number"
@@ -193,20 +198,35 @@ const UserList = () => {
               step="0.0001"
             />
           </div>
-
+          <div className="mb-3">
+            <label className="form-label">Duration</label>
+            <select
+              className="form-select"
+              value={depositDuration}
+              onChange={(e) => setDepositDuration(Number(e.target.value))}
+            >
+              <option value={60}>1 Minute</option>
+              <option value={86400}>1 Day</option>
+              <option value={2592000}>1 Month</option>
+            </select>
+          </div>
         </div>
         <div className="modal-footer">
           <button className="btn btn-secondary" onClick={() => setDepositModal(false)}>
             Cancel
           </button>
-          <button className="btn btn-primary" onClick={handleDeposit} disabled={!depositAmount}>
+          <button
+            className="btn btn-primary"
+            onClick={() => handleDeposit(depositDuration)}
+            disabled={!depositAmount}
+          >
             Send
           </button>
         </div>
       </div>
     </div>
   </div>
-)} 
+)}
     </div>
     
   );

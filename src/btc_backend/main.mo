@@ -2,6 +2,7 @@ import Principal "mo:base/Principal";
 import Array "mo:base/Array";
 import Nat8 "mo:base/Nat8";
 import Nat64 "mo:base/Nat64";
+import Nat "mo:base/Nat";
 import Blob "mo:base/Blob";
 import Text "mo:base/Text";
 import Trie "mo:base/Trie";
@@ -14,7 +15,8 @@ import Cycles "mo:base/ExperimentalCycles";
 import Icrc1Ledger "./ledger_types";
 import Debug "mo:base/Debug";
 import Error "mo:base/Error";
-
+import Time "mo:base/Time";
+import Timer "mo:base/Timer";
 
 
 shared ({caller = initializer}) actor class() {
@@ -25,6 +27,69 @@ shared ({caller = initializer}) actor class() {
   let ledgerCanister = actor("mc6ru-gyaaa-aaaar-qaaaq-cai") : actor {
     icrc2_transfer_from : shared Icrc1Ledger.TransferFromArgs -> async Icrc1Ledger.TransferFromResult;   
     icrc1_balance_of : shared query Icrc1Ledger.Account -> async Icrc1Ledger.Tokens;
+  };
+
+
+  var timerID: Nat = 0;
+
+  public func testTimer() : async () {    
+    func alarmUser() :  async () {
+      Debug.print("Wake up, B" # Nat.toText(timerID));
+      timerID := Timer.setTimer(#seconds 2, alarmUser);
+    };
+    await alarmUser();
+  };
+
+  public func stopTimer() : async () {    
+    Timer.cancelTimer(timerID);
+  };
+
+  public shared ({ caller }) func createTimer(duration: Nat, to_sub: Blob, amount: Nat) : async Result.Result<Icrc1Ledger.BlockIndex, Text> {
+    let callerUser = await getUserByPrinc(Principal.toText(caller));
+    switch (callerUser) {
+      case (?user) 
+      {             
+        func pay() :  async () {   
+          let realWallet = Array.find<T.Wallet>(user.wallets, func (w) = w.blob == to_sub);
+          switch (realWallet) {
+            case (?w) {              
+              let move = await moveBalance(Principal.toText(caller), null, to_sub, amount);  
+              let payTimerId = Timer.setTimer(#seconds duration, pay);
+              let updatedWallet: T.Wallet = {
+                blob = w.blob;
+                ledger = w.ledger;   
+                timer = payTimerId;
+                amount = amount;
+                delay = duration;   
+              };                    
+              let canister_id = await getUserNodeCanisterId(Principal.toText(caller));   
+              switch(canister_id)
+              {
+                case (#ok o) {
+                  let userNode = actor (o) : actor {
+                      updateWallet : shared (principal_id: Text, wallet: T.Wallet) -> async ();
+                  };
+                 await userNode.updateWallet(Principal.toText(caller), updatedWallet);
+                };
+                case (#err e)
+                {
+
+                };
+              };
+              
+            };
+            case (null) {      
+              
+            };
+          };                         
+        };
+        await pay();        
+      };
+      case (null) {      
+        
+      };      
+    };    
+    return #ok 0;
   };
 
   public shared ({ caller }) func moveBalance(from_principal: Text, from_sub: ?Blob, to_sub: Blob, amount: Nat) : async Result.Result<Icrc1Ledger.BlockIndex, Text> {
@@ -38,7 +103,7 @@ shared ({caller = initializer}) actor class() {
       spender_subaccount = null;      
       fee = ?10;      
       to = {
-        owner = caller;
+        owner = Principal.fromText(from_principal);
         subaccount = ?to_sub;
       };
       created_at_time = null;
@@ -87,30 +152,13 @@ shared ({caller = initializer}) actor class() {
     }    
   };
 
-  public shared ({caller}) func getBalance(wallet: Blob) : async Nat64 {
-    let callerUser = await getUserByPrinc(Principal.toText(caller));     
-    switch (callerUser) {
-      case (?user) 
-      {            
-        let realWallet = Array.find<T.Wallet>(user.wallets, func (w) = w.blob == wallet);
-        switch (realWallet) {
-          case (?w) {
-            let ownerRec = {
-                owner = caller;
-                subaccount = ?w.blob;
-            };            
-            let balance = await ledgerCanister.icrc1_balance_of(ownerRec);
-            return Nat64.fromNat(balance);
-          };
-          case (null) {      
-            return 0;
-          };
-        };
-      };
-      case (null) {      
-        return 0;
-      };      
-    }    
+  public shared ({caller}) func getBalance(wallet: ?Blob) : async Nat64 {           
+    let ownerRec = {
+        owner = caller;
+        subaccount = wallet;
+    };            
+    let balance = await ledgerCanister.icrc1_balance_of(ownerRec);
+    return Nat64.fromNat(balance);
   };
 
   public shared ({caller}) func getAllUsers() : async [T.User] {    
@@ -176,11 +224,17 @@ shared ({caller = initializer}) actor class() {
               let sub2 = createSubaccount(caller, 2);
               let wallet1 = {
                 blob = sub1;
-                ledger = U.bytesToText(Blob.toArray(Principal.toLedgerAccount(caller, ?sub1)));                
+                ledger = U.bytesToText(Blob.toArray(Principal.toLedgerAccount(caller, ?sub1)));            
+                timer = 0;                    
+                amount = 0;
+                delay = 0;
               };
               let wallet2 = {
                 blob = sub2;
-                ledger = U.bytesToText(Blob.toArray(Principal.toLedgerAccount(caller, ?sub2)));                
+                ledger = U.bytesToText(Blob.toArray(Principal.toLedgerAccount(caller, ?sub2)));   
+                timer = 0;
+                amount = 0;
+                delay = 0;             
               };
               let newUser: T.User = {
                 nickname = user.nickname;

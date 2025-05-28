@@ -21,6 +21,8 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
   const [userActor, setUserActor] = useState(null);
 
+  const [plugBalance, setPlugBalance] = useState(0);
+
   useEffect(() => {
     //initAuth();
     initPlugAuth();
@@ -97,10 +99,8 @@ const LoginII = async () => {
   const getBalance = async (dfx) => {
     try
     {
-        const result = await userActor.getBalance(dfx);
-        const numAmount = Number(result) / 100_000_000; 
-        console.log(result);
-        console.log(numAmount);
+        const result = await userActor.getBalance(dfx ? [dfx] : []);
+        const numAmount = Number(result) / 100_000_000;         
         return numAmount ;
     }
     catch (e)
@@ -109,12 +109,30 @@ const LoginII = async () => {
     }
   };
 
+  const deposit = async (to_sub, amount, duration) => {  
+    const move = await moveBalance(null, to_sub, amount);
+    if(move)
+    {
+      const numAmount = Math.round(amount*100_000_000);
+      const timerResult = await userActor.createTimer(duration, to_sub, numAmount);
+      console.log(timerResult);
+    }
+  };
+
   const moveBalance = async (from_sub, to_sub, amount) => {    
     console.log("from_sub", from_sub);
     console.log("to_sub", to_sub);
     console.log("amount", amount);
-    const tokenCanisterId = "mc6ru-gyaaa-aaaar-qaaaq-cai";     
-    const nat64amount = BigInt(Math.round(amount * 100_000_000) + 10_000);
+    let nat64amount = BigInt(Math.round(amount * 100_000_000) + 10_000);        
+    if(!from_sub)
+    {
+      const fullBalance = await getBalance(null);
+      console.log("fullBalance", fullBalance);
+      nat64amount =  BigInt(Math.round(fullBalance * 100_000_000));
+    }
+
+    const tokenCanisterId = "mc6ru-gyaaa-aaaar-qaaaq-cai";  
+
     const arg = IDL.encode([
       IDL.Record({
         from_subaccount: IDL.Opt(IDL.Vec(IDL.Nat8)),
@@ -160,6 +178,10 @@ const LoginII = async () => {
       console.log(numAmount);
       const depositResult = await userActor.moveBalance(textPrinc, from_sub ? [from_sub] : [], to_sub, numAmount);
       console.log("depositResult",depositResult);
+      if(depositResult.ok)
+      {
+        return true;
+      }
     }
   };
 
@@ -232,7 +254,8 @@ const LoginII = async () => {
         register,
         getAllWallets,
         getBalance,
-        moveBalance        
+        moveBalance,
+        deposit        
       }}
     >
       {children}
