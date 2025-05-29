@@ -24,6 +24,8 @@ shared ({caller = initializer}) actor class() {
   private stable var _uids : Trie.Trie<Text, Text> = Trie.empty();    
   private stable var _userNodes : [Text] = []; 
 
+  private var timerList: [Nat] = [];
+
   let ledgerCanister = actor("mc6ru-gyaaa-aaaar-qaaaq-cai") : actor {
     icrc2_transfer_from : shared Icrc1Ledger.TransferFromArgs -> async Icrc1Ledger.TransferFromResult;   
     icrc1_balance_of : shared query Icrc1Ledger.Account -> async Icrc1Ledger.Tokens;
@@ -44,6 +46,63 @@ shared ({caller = initializer}) actor class() {
     Timer.cancelTimer(timerID);
   };
 
+  system func preupgrade() {
+    Timer.cancelTimer(timerID);
+    for (t in timerList.vals()) {
+      Timer.cancelTimer(t);
+    };
+  };
+
+  public shared ({ caller }) func withdraw(from_sub: Blob, amount: Nat) : async Result.Result<Icrc1Ledger.BlockIndex, Text> {
+     let callerUser = await getUserByPrinc(Principal.toText(caller));
+     switch (callerUser) {
+      case (?user) 
+      {                     
+          let realWallet = Array.find<T.Wallet>(user.wallets, func (w) = w.blob == from_sub);
+          switch (realWallet) {
+            case (?w) {                            
+              Timer.cancelTimer(w.timer);
+              timerList := Array.filter<Nat>(
+                timerList,
+                func(x) { x != w.timer }
+              );              
+              let updatedWallet: T.Wallet = {
+                blob = w.blob;
+                ledger = w.ledger;   
+                timer = 0;
+                amount = 0;
+                delay = 0;   
+              };                    
+              let canister_id = await getUserNodeCanisterId(Principal.toText(caller));   
+              switch(canister_id)
+              {
+                case (#ok o) {
+                  let userNode = actor (o) : actor {
+                      updateWallet : shared (principal_id: Text, wallet: T.Wallet) -> async ();
+                  };
+                 await userNode.updateWallet(Principal.toText(caller), updatedWallet);
+                 let move = await moveBalance(Principal.toText(caller), ?from_sub, null, amount);  
+                };
+                case (#err e)
+                {
+
+                };
+              };
+              
+            };
+            case (null) {      
+              
+            };
+          };                                                
+      };
+      case (null) {      
+        
+      };      
+    };    
+    return #ok 1;
+  };
+
+
   public shared ({ caller }) func createTimer(duration: Nat, to_sub: Blob, amount: Nat) : async Result.Result<Icrc1Ledger.BlockIndex, Text> {
     let callerUser = await getUserByPrinc(Principal.toText(caller));
     switch (callerUser) {
@@ -53,8 +112,9 @@ shared ({caller = initializer}) actor class() {
           let realWallet = Array.find<T.Wallet>(user.wallets, func (w) = w.blob == to_sub);
           switch (realWallet) {
             case (?w) {              
-              let move = await moveBalance(Principal.toText(caller), null, to_sub, amount);  
+              let move = await moveBalance(Principal.toText(caller), null, ?to_sub, amount);  
               let payTimerId = Timer.setTimer(#seconds duration, pay);
+              timerList := Array.append<Nat>(timerList, [payTimerId]);
               let updatedWallet: T.Wallet = {
                 blob = w.blob;
                 ledger = w.ledger;   
@@ -89,10 +149,10 @@ shared ({caller = initializer}) actor class() {
         
       };      
     };    
-    return #ok 0;
+    return #ok 1;
   };
 
-  public shared ({ caller }) func moveBalance(from_principal: Text, from_sub: ?Blob, to_sub: Blob, amount: Nat) : async Result.Result<Icrc1Ledger.BlockIndex, Text> {
+  public shared ({ caller }) func moveBalance(from_principal: Text, from_sub: ?Blob, to_sub: ?Blob, amount: Nat) : async Result.Result<Icrc1Ledger.BlockIndex, Text> {
     let transferFromArgs : Icrc1Ledger.TransferFromArgs = {
       from = {
         owner = Principal.fromText(from_principal);
@@ -104,7 +164,7 @@ shared ({caller = initializer}) actor class() {
       fee = ?10;      
       to = {
         owner = Principal.fromText(from_principal);
-        subaccount = ?to_sub;
+        subaccount = to_sub;
       };
       created_at_time = null;
     };

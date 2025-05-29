@@ -109,20 +109,44 @@ const LoginII = async () => {
     }
   };
 
-  const deposit = async (to_sub, amount, duration) => {  
-    const move = await moveBalance(null, to_sub, amount);
-    if(move)
+  const tranzit = async (from_sub, to_sub, amount) => {  
+    const permition = await approve(from_sub, amount);
+    if(permition)
     {
-      const numAmount = Math.round(amount*100_000_000);
-      const timerResult = await userActor.createTimer(duration, to_sub, numAmount);
-      console.log(timerResult);
+      await moveBalance(from_sub, to_sub, amount);
     }
   };
 
-  const moveBalance = async (from_sub, to_sub, amount) => {    
-    console.log("from_sub", from_sub);
-    console.log("to_sub", to_sub);
-    console.log("amount", amount);
+  const deposit = async (to_sub, amount, duration) => {  
+    const permition = await approve(null, amount);
+    if(permition)
+    {
+      const numAmount = Math.round(amount*100_000_000);
+      const timerResult = await userActor.createTimer(duration, to_sub, numAmount);    
+      console.log("timerResult",timerResult);
+      if(timerResult.ok)
+      {
+        return true;
+      }
+    }          
+  };
+
+  const withdraw = async (from_sub, amount) => {  
+    const permition = await approve(from_sub, amount);
+    if(permition)
+    {
+      const numAmount = Math.round(amount*100_000_000);
+      const withdrawResult = await userActor.withdraw(from_sub, numAmount);
+      console.log("withdrawResult",withdrawResult);
+      if(withdrawResult.ok)
+        {
+          return true;
+        }
+    }
+  };
+
+  const approve  = async (from_sub, amount) =>
+  {
     let nat64amount = BigInt(Math.round(amount * 100_000_000) + 10_000);        
     if(!from_sub)
     {
@@ -168,7 +192,19 @@ const LoginII = async () => {
     console.log("icrc2_approve",result);
     if(result.response.ok)
     {
-      console.log("result.response.ok",result.response.ok);
+      return true;
+    }
+    else
+    {
+      return false;
+    }
+  };
+
+
+  const moveBalance = async (from_sub, to_sub, amount) => {    
+      console.log("from_sub", from_sub);
+      console.log("to_sub", to_sub);
+      console.log("amount", amount);            
       const plugPrinc = await window.ic.plug.getPrincipal();
       console.log("plugPrinc:", plugPrinc);
       const textPrinc = plugPrinc.toText();          
@@ -181,8 +217,7 @@ const LoginII = async () => {
       if(depositResult.ok)
       {
         return true;
-      }
-    }
+      }    
   };
 
   const fillUserData = async (options) => {    
@@ -254,8 +289,9 @@ const LoginII = async () => {
         register,
         getAllWallets,
         getBalance,
-        moveBalance,
-        deposit        
+        deposit,
+        withdraw,
+        tranzit,
       }}
     >
       {children}

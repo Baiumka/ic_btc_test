@@ -2,13 +2,16 @@ import React, { useState } from "react";
 import { useAuth } from "../context/AuthContext";
 
 const UserList = () => {
-  const { getAllWallets, getBalance, moveBalance, deposit} = useAuth();
+  const { getAllWallets, getBalance, tranzit, deposit, withdraw} = useAuth();
   const [wallets, setWallets] = useState([]);
   const [details, setDetails] = useState([]);
   const [isOpen, setIsOpen] = useState(false);
 
   const [showModal, setShowModal] = useState(false);
   const [showDepositModal, setDepositModal] = useState(false);
+  const [withdrawModel, setWithdrawModal] = useState(false);
+  const [withdrawWallet, setWithdrawWallet] = useState(null);
+  const [withdrawAmount, setWithdrawAmount] = useState(0);
   const [depositWallet, setDepositWallet] = useState(null);
   const [depositAmount, setDepositAmount] = useState(0);
   const [fromWallet, setFromWallet] = useState(null);
@@ -27,7 +30,7 @@ const UserList = () => {
     if (fromWallet && toWallet && amount) {
       console.log("toWallet",toWallet);
       console.log("fromWallet",fromWallet);
-      await moveBalance(fromWallet.blob, toWallet.blob, amount);
+      await tranzit(fromWallet.blob, toWallet.blob, amount);
       await showBalance(fromWallet);
       await showBalance(toWallet);               
       setShowModal(false);
@@ -36,8 +39,34 @@ const UserList = () => {
   
   const handleDeposit =  async () => {    
     const depositResult = await deposit(depositWallet.blob, depositAmount, depositDuration);
-    await showBalance(depositWallet);
-    setDepositModal(false);
+    if(depositResult)
+    {
+      await showBalance(depositWallet);
+      setDepositModal(false);  
+      setWallets(prevWallets =>
+        prevWallets.map(wallet =>
+          wallet.blob === depositWallet.blob
+            ? { ...wallet, amount: depositAmount, delay: depositDuration }
+            : wallet
+        )
+      );
+    }
+  };
+
+  const handleWithdraw =  async () => {    
+    const withdrawResult = await withdraw(withdrawWallet.blob, withdrawAmount);
+    if(withdrawResult)
+    {
+      await showBalance(withdrawWallet);
+      setWithdrawModal(false);
+      setWallets(prevWallets =>
+        prevWallets.map(wallet =>
+          wallet.blob === withdrawWallet.blob
+            ? { ...wallet, amount: undefined , delay: undefined }
+            : wallet
+        )
+      );
+    }
   };
 
   const fetchWallets = async () => {
@@ -56,6 +85,13 @@ const UserList = () => {
     setDepositAmount(0);
     setDepositWallet(dfx);
     setDepositModal(true);
+  };
+
+  const openWithdrawModal = async (dfx) => {
+    console.log("WithdrawModal", dfx);
+    setWithdrawAmount(0);
+    setWithdrawWallet(dfx);
+    setWithdrawModal(true);
   };
 
 
@@ -98,6 +134,12 @@ const UserList = () => {
                     onClick={() => openMoveModal(dfx)}
                   >
                     MOVE
+                  </button>
+                  <button
+                    className="btn btn-sm btn-outline-danger"
+                    onClick={() => openWithdrawModal(dfx)}
+                  >
+                    WITHDRAW
                   </button>
                 </div>
               </div>
@@ -147,7 +189,7 @@ const UserList = () => {
             </select>
           </div>
           <div className="mb-3">
-            <label className="form-label">Amount (ICP)</label>
+            <label className="form-label">Amount (ckTESTBTC)</label>
             <input
               type="number"
               className="form-control"
@@ -188,7 +230,7 @@ const UserList = () => {
             <label className="form-label">To Wallet: {depositWallet.ledger}</label>
           </div>
           <div className="mb-3">
-            <label className="form-label">Amount (ICP)</label>
+            <label className="form-label">Amount (ckTESTBTC)</label>
             <input
               type="number"
               className="form-control"
@@ -227,6 +269,53 @@ const UserList = () => {
     </div>
   </div>
 )}
+
+{withdrawModel && (
+  <div className="modal d-block" tabIndex="-1" role="dialog">
+    <div className="modal-dialog modal-xl" role="document">
+      <div className="modal-content">
+        <div className="modal-header">
+          <h5 className="modal-title">Withdraw</h5>
+          <button
+            type="button"
+            className="btn-close"
+            onClick={() => setWithdrawModal(false)}
+          ></button>
+        </div>
+        <div className="modal-body">
+          <div className="mb-3">
+            <label className="form-label">From Wallet: {withdrawModel.ledger}</label>
+          </div>
+          <div className="mb-3">
+            <label className="form-label">Amount (ckTESTBTC)</label>
+            <input
+              type="number"
+              className="form-control"
+              value={withdrawAmount}
+              onChange={(e) => setWithdrawAmount(e.target.value)}
+              min="0"
+              step="0.0001"
+            />
+          </div>          
+        </div>
+        <div className="modal-footer">
+          <button className="btn btn-secondary" onClick={() => setWithdrawModal(false)}>
+            Cancel
+          </button>
+          <button
+            className="btn btn-primary"
+            onClick={() => handleWithdraw()}
+            disabled={!withdrawAmount}
+          >
+            Send
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+)}
+
+
     </div>
     
   );
