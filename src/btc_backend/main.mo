@@ -46,12 +46,6 @@ shared ({caller = initializer}) actor class() {
     Timer.cancelTimer(timerID);
   };
 
-  system func preupgrade() {
-    Timer.cancelTimer(timerID);
-    for (t in timerList.vals()) {
-      Timer.cancelTimer(t);
-    };
-  };
 
   public shared ({ caller }) func withdraw(from_sub: Blob, amount: Nat) : async Result.Result<Icrc1Ledger.BlockIndex, Text> {
      let callerUser = await getUserByPrinc(Principal.toText(caller));
